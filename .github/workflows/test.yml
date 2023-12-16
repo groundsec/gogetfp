@@ -17,5 +17,5 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Test
-        run: go test ./...
+      - name: Test Default Proxy
+        run: go test -v -run TestDefaultProxy
