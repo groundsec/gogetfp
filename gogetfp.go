@@ -19,7 +19,7 @@ type FreeProxyConfig struct {
 	Random    bool
 	Anonym    bool
 	Elite     bool
-	Google    *bool
+	Google    bool
 	HTTPS     bool
 }
 
@@ -29,11 +29,11 @@ type FreeProxy struct {
 
 var defaultFreeProxyConfig = FreeProxyConfig{
 	CountryID: []string{},
-	Timeout:   5,
+	Timeout:   1,
 	Random:    false,
 	Anonym:    false,
 	Elite:     false,
-	Google:    nil,
+	Google:    false,
 	HTTPS:     false,
 }
 
@@ -51,10 +51,12 @@ func (fp *FreeProxy) GetProxyList() ([]string, error) {
 		website = "https://www.us-proxy.org"
 	} else if slices.Contains(fp.Config.CountryID, "GB") {
 		website = "https://free-proxy-list.net/uk-proxy.html"
+	} else if fp.Config.Anonym {
+		website = "https://free-proxy-list.net/anonymous-proxy.html"
+	} else if fp.Config.HTTPS {
+		website = "https://www.sslproxies.org"
 	} else {
-		defaultProxies := []string{"https://www.sslproxies.org", "https://free-proxy-list.net"}
-		randomIndex := rand.Intn(2)
-		website = defaultProxies[randomIndex]
+		website = "https://free-proxy-list.net"
 	}
 
 	resp, err := http.Get(website)
@@ -91,16 +93,30 @@ func (fp *FreeProxy) getSchema() string {
 
 // criteria checks if a given row of elements meets the specified criteria.
 func (fp *FreeProxy) criteria(row *goquery.Selection) bool {
-	countryCriteria := len(fp.Config.CountryID) == 0 || row.Eq(2).Text() == fp.Config.CountryID[0]
-	eliteCriteria := len(fp.Config.CountryID) == 0 || strings.Contains(row.Eq(4).Text(), "elite")
-	anonymCriteria := len(fp.Config.CountryID) == 0 || !fp.Config.Anonym || strings.Contains(row.Eq(4).Text(), "anonymous")
-	googleCriteria := fp.Config.Google == nil || *fp.Config.Google == (row.Eq(5).Text() == "yes")
-	httpsCriteria := !fp.Config.HTTPS || strings.ToLower(row.Eq(6).Text()) == "yes"
+	countryCriteria := len(fp.Config.CountryID) == 0 || slices.Contains(fp.Config.CountryID, row.Eq(2).Text())
+	eliteCriteria := !fp.Config.Elite || strings.Contains(row.Eq(4).Text(), "elite")
+	anonymCriteria := !fp.Config.Anonym || strings.Contains(row.Eq(4).Text(), "anonymous")
+	googleCriteria := !fp.Config.Google || strings.Contains(row.Eq(5).Text(), "yes")
+	httpsCriteria := !fp.Config.HTTPS || strings.Contains(row.Eq(6).Text(), "yes")
 	return countryCriteria && eliteCriteria && anonymCriteria && googleCriteria && httpsCriteria
 }
 
-// Get returns a working proxy that matches the specified parameters.
-func (fp *FreeProxy) Get() (string, error) {
+// Returns a untested proxy that matches the specified parameters.
+func (fp *FreeProxy) GetProxy() (string, error) {
+	proxyList, err := fp.GetProxyList()
+	if err != nil {
+		return "", err
+	}
+	if fp.Config.Random {
+		rand.Shuffle(len(proxyList), func(i, j int) {
+			proxyList[i], proxyList[j] = proxyList[j], proxyList[i]
+		})
+	}
+	return proxyList[0], nil
+}
+
+// Returns a working proxy that matches the specified parameters.
+func (fp *FreeProxy) GetWorkingProxy() (string, error) {
 	proxyList, err := fp.GetProxyList()
 	if err != nil {
 		return "", err
