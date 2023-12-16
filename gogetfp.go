@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -20,45 +21,40 @@ type FreeProxyConfig struct {
 	Elite     bool
 	Google    *bool
 	HTTPS     bool
-	Schema    string
 }
 
 type FreeProxy struct {
 	Config FreeProxyConfig
 }
 
-var DefaultFreeProxyConfig = FreeProxyConfig{
+var defaultFreeProxyConfig = FreeProxyConfig{
 	CountryID: []string{},
-	Timeout:   0.5,
+	Timeout:   5,
 	Random:    false,
 	Anonym:    false,
 	Elite:     false,
 	Google:    nil,
 	HTTPS:     false,
-	Schema:    "http",
 }
 
 func New(config FreeProxyConfig) *FreeProxy {
 	if config.Timeout == 0 {
-		config.Timeout = DefaultFreeProxyConfig.Timeout
-	}
-	if config.Schema == "" {
-		config.Schema = DefaultFreeProxyConfig.Schema
+		config.Timeout = defaultFreeProxyConfig.Timeout
 	}
 	return &FreeProxy{Config: config}
 }
 
 // GetProxyList retrieves a list of proxies based on the specified criteria.
-func (fp *FreeProxy) GetProxyList(repeat bool) ([]string, error) {
+func (fp *FreeProxy) GetProxyList() ([]string, error) {
 	var website string
-	if repeat {
-		website = "https://free-proxy-list.net"
-	} else if slices.Contains(fp.Config.CountryID, "US") {
+	if slices.Contains(fp.Config.CountryID, "US") {
 		website = "https://www.us-proxy.org"
 	} else if slices.Contains(fp.Config.CountryID, "GB") {
 		website = "https://free-proxy-list.net/uk-proxy.html"
 	} else {
-		website = "https://www.sslproxies.org"
+		defaultProxies := []string{"https://www.sslproxies.org", "https://free-proxy-list.net"}
+		randomIndex := rand.Intn(2)
+		website = defaultProxies[randomIndex]
 	}
 
 	resp, err := http.Get(website)
@@ -85,6 +81,14 @@ func (fp *FreeProxy) GetProxyList(repeat bool) ([]string, error) {
 	return proxies, nil
 }
 
+func (fp *FreeProxy) getSchema() string {
+	if fp.Config.HTTPS {
+		return "https"
+	} else {
+		return "http"
+	}
+}
+
 // criteria checks if a given row of elements meets the specified criteria.
 func (fp *FreeProxy) criteria(row *goquery.Selection) bool {
 	countryCriteria := len(fp.Config.CountryID) == 0 || row.Eq(2).Text() == fp.Config.CountryID[0]
@@ -96,8 +100,8 @@ func (fp *FreeProxy) criteria(row *goquery.Selection) bool {
 }
 
 // Get returns a working proxy that matches the specified parameters.
-func (fp *FreeProxy) Get(repeat bool) (string, error) {
-	proxyList, err := fp.GetProxyList(repeat)
+func (fp *FreeProxy) Get() (string, error) {
+	proxyList, err := fp.GetProxyList()
 	if err != nil {
 		return "", err
 	}
@@ -116,26 +120,21 @@ func (fp *FreeProxy) Get(repeat bool) (string, error) {
 		}
 	}
 
-	if workingProxy == "" && !repeat {
-		fp.Config.CountryID = nil
-		return fp.Get(true)
-	}
-
 	return "", fmt.Errorf("there are no working proxies at this time")
 }
 
 // checkIfProxyIsWorking checks if a proxy is working by making a request to Google.
 func (fp *FreeProxy) checkIfProxyIsWorking(proxyAddress string) (string, error) {
-	testUrl := fmt.Sprintf("%s://www.google.com", fp.Config.Schema)
-	proxy := fmt.Sprintf("%s://%s", fp.Config.Schema, proxyAddress)
+	schema := fp.getSchema()
+	testUrl := fmt.Sprintf("%s://www.example.com", schema)
+	proxy := fmt.Sprintf("%s://%s", schema, proxyAddress)
 	proxyURL, err := url.Parse(proxy)
 	if err != nil {
 		return "", err
 	}
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: time.Duration(fp.Config.Timeout) * time.Second}
 	resp, err := client.Get(testUrl)
 	if err != nil {
-		fmt.Println(err)
 		return "", err
 	}
 	defer resp.Body.Close()
